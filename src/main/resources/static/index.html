@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chat ENSG</title>
+<link rel="stylesheet" type="text/css" href="style.css">
+<script src="http://cdn.sockjs.org/sockjs-0.3.4.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<script type="text/javascript">
+	var sock, stompClient, name, subscription,subscriptionAdmin;
+
+	//Initialization
+	function init() {
+		setName();
+		connect();
+	}
+
+	//Setting user name
+	function setName() {
+		name = prompt("Enter your name:", "Bob");
+		if (!name || name === "") {
+			name = "Chater";
+		}
+		name = name.replace(/(<([^>]+)>)/ig, "");
+	};
+
+	//Connect to server
+	function connect() {
+		sock = new SockJS('/hello');
+		sock.onheartbeat = function() {
+			console.log('heartbeat');
+		};
+		stompClient = Stomp.over(sock);
+		stompClient.connect({}, function(frame) {
+			console.log('Connected: ' + frame);
+			subscribe();
+		});
+	}
+
+	//Suscribe chanel
+	function subscribe() {
+		subscription = stompClient.subscribe('/topic/room1', function(message) {
+			var m = JSON.parse(message.body);
+			addMessageFromUser(m.user,m.content);
+		});
+
+		subscriptionAdmin = stompClient.subscribe('/topic/room1/admin', function(
+				message) {
+			var m = JSON.parse(message.body);
+			switch(m.eventType) {
+			    case 'CONNECT':
+			    	if(m.name == name) break;
+			        userConnect(m.name);
+			        break;
+			    case 'DISCONNECT':
+			    	userDisconnect(m.name);
+			        break;
+				}
+			
+		});
+
+		populate();
+		
+		stompClient.send("/app/users", {
+			subscription : subscription.id
+		}, JSON.stringify({
+			'eventType' : 'CONNECT',
+			'name' : name
+		}));
+		
+		
+	}
+
+	//Send message to chanel
+	function sendMessage() {
+		var message = document.getElementById("msg");
+		if (message.value != "") {
+			stompClient.send("/app/chat", {
+				subscription : subscription.id
+			}, JSON.stringify({
+				'user' : name,
+				'message' : message.value
+			}));
+			message.value = "";
+		}
+	}
+	
+	//Add message :
+	function addMessage(message) {
+		var chatZone = document.getElementById("chatZone");
+		chatZone.innerHTML += '<div class="chatmsg"><b>' + message + '</b><br/></div>';
+		chatZone.scrollTop = chatZone.scrollHeight;
+	}
+	
+	//Add message from user:
+	function addMessageFromUser(user, message) {
+		var chatZone = document.getElementById("chatZone");
+		chatZone.innerHTML += '<div class="chatmsg"><b>' + user
+				+ '</b>: ' + message + '<br/></div>';
+		chatZone.scrollTop = chatZone.scrollHeight;
+	}
+
+	//Unsucribe chanel
+	function unsubscribe() {
+		stompClient.send("/app/users", {
+			subscription : subscription.id
+		}, JSON.stringify({
+			'eventType' : 'DISCONNECT',
+			'name' : name
+		}));
+		subscriptionAdmin.unsubscribe();
+		subscription.unsubscribe();
+	}
+
+	//Disconnect server
+	function disconnect() {
+		
+		unsubscribe();
+
+		stompClient.disconnect(function(frame) {
+		});
+	}
+	
+	//User connection
+	function userConnect(userName) {
+		addMessage(userName+ ' vient de se connecter');				
+		addUser(userName)
+	}
+	
+	//Add User to user Zone :
+	function addUser(userName){
+		var usersZone = document.getElementById("usersZone");
+		usersZone.innerHTML += '<div class="user" id="'+ userName +'"><b>' + userName
+				+ '</b><br/></div>';
+		usersZone.scrollTop = usersZone.scrollHeight;
+	}
+	
+	//User disconnection
+	function userDisconnect(userName) {
+
+		var chatZone = document.getElementById("chatZone");
+		chatZone.innerHTML += '<div class="chatmsg"><b>' + userName
+				+ ' vient de se déconnecter</b><br/></div>';
+		chatZone.scrollTop = chatZone.scrollHeight;
+		
+ 		var chatZone = document.getElementById("usersZone");
+		var userDisconnected = document.getElementById(userName);
+		chatZone.removeChild(userDisconnected); 
+	}
+	
+	//populate users
+	function populate()
+	{
+		$(function(){
+		    $.getJSON('/users', function(users) {
+		    	users.forEach(function(user){
+		    		addUser(user.name);
+		    	})
+		    });
+		});
+	}
+	
+	window.onbeforeunload = function (e) {
+		disconnect();
+	}
+	
+	
+</script>
+
+</head>
+
+<body style="margin: 0" onload="init()">
+	<noscript>
+		<h2 style="color: #ff0000">Seems your browser doesn't support
+			Javascript! WebSocket relies on Javascript being enabled. Please
+			enable Javascript and reload this page!</h2>
+	</noscript>
+	<div class="container">
+		<div class="chat">
+			<div>
+				<div id="chatZone" name="chatZone"></div>
+				<div id="usersZone" name="usersZone"></div>
+			</div>
+
+			<form onsubmit="sendMessage();return false;">
+				<label for="msg" style="float: left">Message:</label> <input
+					type="text" id="msg" name="msg" autofocus="true" autocomplete="off"
+					placeholder="Type Your Meassage Here" /> <input type="submit" />
+			</form>
+		</div>
+	</div>
+</body>
+</html>
